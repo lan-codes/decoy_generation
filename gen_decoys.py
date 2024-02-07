@@ -324,6 +324,8 @@ def filterDecoysByDiversity(decoy_mols: list) -> list:
 def selectOutputDecoys(input_mols: list, decoy_mols: list, params: argparse.Namespace) -> None:
     print('Selecting output decoys...', file=sys.stderr)
 
+    decoy_mols = sorted(decoy_mols, key=lambda entry: entry.maxInputSim)
+ 
     for input_mol in input_mols:
         input_mol.decoys = []
 
