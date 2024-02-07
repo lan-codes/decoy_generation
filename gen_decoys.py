@@ -69,15 +69,12 @@ class MolPropData():
         props.name = Chem.getName(mol)
         props.weight = MolProp.calcMass(mol)
         props.logP = MolProp.calcXLogP(mol)
+        props.netCharge = MolProp.getNetFormalCharge(mol)
         props.numRotBonds = MolProp.getRotatableBondCount(mol)
         props.numHBA = MolProp.getHBondAcceptorAtomCount(mol)
         props.numHBD = MolProp.getHBondDonorAtomCount(mol)
-        props.hashCode = Chem.calcHashCode(mol, Chem.AtomPropertyFlag.TYPE, Chem.BondPropertyFlag.ORDER | Chem.BondPropertyFlag.AROMATICITY)
-        props.netCharge = 0
-
-        for a in mol.atoms:
-            props.netCharge += Chem.getFormalCharge(a)
-
+        props.hashCode = Chem.calcHashCode(mol, Chem.AtomPropertyFlag.TYPE,
+                                           Chem.BondPropertyFlag.ORDER | Chem.BondPropertyFlag.AROMATICITY)
         return props
 
     @staticmethod
