@@ -12,7 +12,7 @@ in the DUDE-Z data set [[Stein et al.]](https://pubs.acs.org/doi/abs/10.1021/acs
 Decoys for a given set of input molecules (e.g. a set of known actives specified by the *-i* option) are retrieved from a large 
 database of diverse drug-like molecules (e.g. a suitable ZINC subset; specified by the *-d* option). In principle, any compound database can
 be used as decoy source. However, the database should be large enough (in the order of several millions of molecules) so that it can be made
-sure that a sufficient amount of structurally diverse decoys is found for each provided input molecule (default: 50 output decoys per input molecule).
+sure that a sufficient amount of structurally diverse decoys is found for each input molecule (default: 50 output decoys per molecule).
 
 Decoy candidates are primarily selected by an input molecule property matching procedure. One of these properties is the net formal charge and the
 tolerance for matching this property should be quite small (default: zero). Thus, to be able to find a sufficient number of decoy candidates,
@@ -36,7 +36,7 @@ only once for the used decoy database and the generated property CSV file can th
 if the `<DECOY-DB>` file gets altered by removing or adding molecules the property calculation procedure needs to be carried out
 again!).
 
-### Generating decoys for set of molecules
+### Generating decoys for a set of molecules
 
 ```console
 $ python3 gen_decoys.py -i <INPUT-MOLS> -o <GEN-DECOYS> -d <DECOY-DB> -p <PROP-CSV-FILE>
