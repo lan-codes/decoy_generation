@@ -36,7 +36,7 @@ only once for the used decoy database and the generated property CSV file can th
 if the `<DECOY-DB>` file gets altered by removing or adding molecules the property calculation procedure needs to be carried out
 again!).
 
-### Generating decoys for set of molecules
+### Generating decoys for a set of molecules
 
 ```console
 $ python3 gen_decoys.py -i <INPUT-MOLS> -o <GEN-DECOYS> -d <DECOY-DB> -p <PROP-CSV-FILE>
