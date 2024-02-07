@@ -32,10 +32,10 @@ import CDPL.Descr as Descr
 import CDPL.Util as Util
 
 
-MAX_POOL_SIZE            = 10000
-ECFP4_LENGTH             = 6007
-MAX_INPUT_MOL_SIMILARITY = 0.35
-MAX_DECOY_MOL_SIMILARITY = 0.80
+MAX_POOL_SIZE           = 10000
+ECFP4_LENGTH            = 6007
+MAX_DECOY_INPUT_MOL_SIM = 0.35
+MAX_DECOY_DECOY_SIM     = 0.80
 
 
 class MolPropData():
@@ -175,7 +175,7 @@ def parseArguments():
     parser.add_argument('--logp-tol',
                         dest='logp_tol',
                         required=False,
-                        help='[Optional] LogP matching tolerance (default: 1.5).',
+                        help='[Optional] LogP matching tolerance (default: 1.0).',
                         metavar='<float>',
                         type=float,
                         default=1.5)
@@ -209,55 +209,55 @@ def parseArguments():
  
     return parser.parse_args()
 
-def findPropMatchingDecoyCandidates(input_mol_props: list, decoy_mol_props: list, excl_mol_set: set, params: argparse.Namespace) -> list:
+def findPropMatchingDecoyCandidates(input_mols: list, decoy_mols: list, excl_mol_hashes: set, params: argparse.Namespace) -> list:
     print('Searching for property matching molecules in decoy database...', file=sys.stderr)
 
-    sel_mask = Util.BitSet(len(decoy_mol_props))
-    matching = []
+    used_mask = Util.BitSet(len(decoy_mols))
+    matched_decoys = []
 
-    for entry in input_mol_props:
+    for input_mol in input_mols:
         num_sel = 0
 
-        for i in range(len(decoy_mol_props)):
-            if sel_mask.test(i):
+        for i in range(len(decoy_mols)):
+            if used_mask.test(i):
                 continue
 
-            if decoy_mol_props[i].hashCode in excl_mol_set:
+            if decoy_mols[i].hashCode in excl_mol_hashes:
                 continue
             
-            if entry.matches(decoy_mol_props[i], params):
-                matching.append(decoy_mol_props[i])
-                sel_mask.set(i)
+            if input_mol.matches(decoy_mols[i], params):
+                matched_decoys.append(decoy_mols[i])
+                used_mask.set(i)
 
                 num_sel += 1
 
                 if num_sel >= MAX_POOL_SIZE:
                     break
 
-    print(f' -> Found {len(matching)} decoy candidates', file=sys.stderr)
+    print(f' -> Found {len(matched_decoys)} decoy candidates', file=sys.stderr)
 
-    return matching
+    return matched_decoys
 
-def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mol_props: list, decoy_mol_props: list) -> list:
+def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mols: list, decoy_mols: list) -> list:
     ecfp_gen = Descr.CircularFingerprintGenerator()
     
-    print(f'Removing decoy candidates with input molecule Tanimoto similarity > {MAX_INPUT_MOL_SIMILARITY}...', file=sys.stderr)
+    print(f'Removing decoy candidates with input molecule Tanimoto similarity > {MAX_DECOY_INPUT_MOL_SIM}...', file=sys.stderr)
 
-    for entry in input_mol_props:
-        entry.ecfp = Util.BitSet(ECFP4_LENGTH)
+    for input_mol in input_mols:
+        input_mol.ecfp = Util.BitSet(ECFP4_LENGTH)
 
-        ecfp_gen.generate(entry.molecule) 
-        ecfp_gen.setFeatureBits(entry.ecfp)
+        ecfp_gen.generate(input_mol.molecule) 
+        ecfp_gen.setFeatureBits(input_mol.ecfp)
 
-        del entry.molecule
+        del input_mol.molecule
    
-    remaining = []
+    res_decoys = []
     mol = Chem.BasicMolecule()
     ecfp = Util.BitSet(ECFP4_LENGTH)
     
-    for decoy_entry in decoy_mol_props:
-        if not decoy_mol_reader.read(decoy_entry.index, mol):
-            print(f' -> Error: could not read decoy database molecule at index {decoy_entry.index}', file=sys.stderr)
+    for decoy_mol in decoy_mols:
+        if not decoy_mol_reader.read(decoy_mol.index, mol):
+            print(f' -> Error: could not read decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
             continue
 
         Chem.calcBasicProperties(mol, False)
@@ -267,117 +267,113 @@ def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mol_p
 
         max_sim = -1.0
 
-        for ipt_mol_entry in input_mol_props:
-            max_sim = max(max_sim, Descr.calcTanimotoSimilarity(ecfp, ipt_mol_entry.ecfp))
+        for input_mol in input_mols:
+            max_sim = max(max_sim, Descr.calcTanimotoSimilarity(ecfp, input_mol.ecfp))
             
-            if max_sim > MAX_INPUT_MOL_SIMILARITY:
+            if max_sim > MAX_DECOY_INPUT_MOL_SIM:
                 break
 
-        if max_sim > MAX_INPUT_MOL_SIMILARITY:
+        if max_sim > MAX_DECOY_INPUT_MOL_SIM:
             continue
 
-        decoy_entry.maxInputSim = max_sim
-        decoy_entry.ecfp = ecfp
+        decoy_mol.maxInputSim = max_sim
+        decoy_mol.ecfp = ecfp
 
         ecfp = Util.BitSet(ECFP4_LENGTH)
 
-        remaining.append(decoy_entry)
+        res_decoys.append(decoy_mol)
 
-    print(f' -> Discarded {len(decoy_mol_props) - len(remaining)} decoy candidates, {len(remaining)} remaining', file=sys.stderr)
+    print(f' -> Discarded {len(decoy_mols) - len(res_decoys)} decoy candidates, {len(res_decoys)} remaining', file=sys.stderr)
     
-    return remaining
+    return res_decoys
 
-def filterDecoysByDiversity(decoy_mol_props: list) -> list:
+def filterDecoysByDiversity(decoy_mols: list) -> list:
     print('Performing diversity picking on decoy candidates...', file=sys.stderr)
 
-    decoy_mol_props = sorted(decoy_mol_props, key=lambda entry: entry.weight)
-    selected = []
+    decoy_mols = sorted(decoy_mols, key=lambda entry: entry.weight)
+    res_decoys = []
 
-    for entry in decoy_mol_props:
-        sim_entry_idx = -1
+    for decoy_mol in decoy_mols:
+        sim_entry = -1
         discard = False
         
-        for i in range(len(selected)):
-            sim = Descr.calcTanimotoSimilarity(selected[i].ecfp, entry.ecfp)
+        for i in range(len(res_decoys)):
+            sim = Descr.calcTanimotoSimilarity(res_decoys[i].ecfp, decoy_mol.ecfp)
 
-            if sim > MAX_DECOY_MOL_SIMILARITY:
-                if sim_entry_idx >= 0:
+            if sim > MAX_DECOY_DECOY_SIM:
+                if sim_entry >= 0:
                     discard = True
                     break
                 
-                sim_entry_idx = i
+                sim_entry = i
 
         if discard:
             continue
         
-        if sim_entry_idx < 0:
-            selected.append(entry)
+        if sim_entry < 0:
+            res_decoys.append(decoy_mol)
             continue
         
-        if selected[sim_entry_idx].maxInputSim > entry.maxInputSim:
-            selected[sim_entry_idx] = entry
+        if res_decoys[sim_entry].maxInputSim > decoy_mol.maxInputSim:
+            res_decoys[sim_entry] = decoy_mol
             
-    print(f' -> Discared {len(decoy_mol_props) - len(selected)} decoy candidates, {len(selected)} final candidates remaining', file=sys.stderr)
+    print(f' -> Discared {len(decoy_mols) - len(res_decoys)} decoy candidates, {len(res_decoys)} final candidates remaining', file=sys.stderr)
 
-    return selected
+    return res_decoys
 
-def selectOutputDecoys(input_mol_props: list, decoy_mol_props: list, params: argparse.Namespace) -> list:
+def selectOutputDecoys(input_mols: list, decoy_mols: list, params: argparse.Namespace) -> None:
     print('Selecting output decoys...', file=sys.stderr)
 
-    selected = []
+    for input_mol in input_mols:
+        input_mol.decoys = []
 
-    for entry in input_mol_props:
-        entry.numDecoys = 0
-    
-    for entry in decoy_mol_props:
-        sel_ipt_mol_idx = -1
-        exit_loop = True
+    num_selected = 0
         
-        for i in range(len(input_mol_props)):
-            if input_mol_props[i].numDecoys >= params.max_num_decoys:
+    for decoy_mol in decoy_mols:
+        sel_ipt_mol = None
+        
+        for input_mol in input_mols:
+            if len(input_mol.decoys) >= params.max_num_decoys:
                 continue
 
-            exit_loop = False
-
-            if not input_mol_props[i].matches(entry, params):
+            if not input_mol.matches(decoy_mol, params):
                 continue
             
-            if sel_ipt_mol_idx < 0 or input_mol_props[i].numDecoys < input_mol_props[sel_ipt_mol_idx].numDecoys:
-                sel_ipt_mol_idx = i
+            if not sel_ipt_mol or len(input_mol.decoys) < len(sel_ipt_mol.decoys):
+                sel_ipt_mol = input_mol
 
-        if sel_ipt_mol_idx < 0:
-            if exit_loop:
-                break
-
+        if not sel_ipt_mol:
             continue
 
-        selected.append(entry)
+        sel_ipt_mol.decoys.append(decoy_mol)
         
-        input_mol_props[sel_ipt_mol_idx].numDecoys += 1
+        num_selected += 1
 
-    for entry in input_mol_props:
-        if entry.numDecoys < params.min_num_decoys:
-            print(f' Warning: insufficient number of decoys for input molecule \'{entry.name}\' ({entry.numDecoys})', file=sys.stderr)
+        if num_selected >= len(input_mols) * params.max_num_decoys:
+            break
+
+    for input_mol in input_mols:
+        if len(input_mol.decoys) < params.min_num_decoys:
+            print(f' Warning: insufficient number of decoys for input molecule \'{input_mol.name}\' ({len(input_mol.decoys)})', file=sys.stderr)
         
-    print(f' -> Selected {len(selected)} final decoys', file=sys.stderr)
-    
-    return selected
+    print(f' -> Selected {num_selected} final decoys', file=sys.stderr)
 
-def outputDecoys(decoy_mol_props: list, decoy_mol_reader: Chem.MoleculeReader, args: argparse.Namespace) -> None:
+def outputDecoys(input_mols: list, decoy_mol_reader: Chem.MoleculeReader, args: argparse.Namespace) -> None:
     print(f'Writing decoy molecules to file \'{args.output}\'...', file=sys.stderr)
 
     mol_writer = Chem.MolecularGraphWriter(args.output)
     mol = Chem.BasicMolecule()
     
-    for entry in decoy_mol_props:
-        if not decoy_mol_reader.read(entry.index, mol):
-            print(f' -> Error: could not read decoy database molecule at index {entry.index}', file=sys.stderr)
-            continue
+    for input_mol in input_mols:
+        for decoy_mol in input_mol.decoys:
+            if not decoy_mol_reader.read(decoy_mol.index, mol):
+                print(f' -> Error: could not read decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
+                continue
 
-        Chem.calcBasicProperties(mol, False)
+            Chem.calcBasicProperties(mol, False)
         
-        if not mol_writer.write(mol):
-            print(f' -> Error: could not write decoy database molecule at index {entry.index}', file=sys.stderr)
+            if not mol_writer.write(mol):
+                print(f' -> Error: could not output decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
         
     mol_writer.close()
     decoy_mol_reader.close()
@@ -432,18 +428,18 @@ def loadInputMolecules(args: argparse.Namespace) -> tuple:
     print(f'Loading input molecules from file \'{args.input}\'...', file=sys.stderr)
 
     mol_reader = Chem.MoleculeReader(args.input)
-    input_mol_props = readMolsAndCalcProperties(mol_reader, True)
+    input_mols = readMolsAndCalcProperties(mol_reader, True)
 
-    print(f' -> Read {len(input_mol_props)} molecules', file=sys.stderr)
+    print(f' -> Read {len(input_mols)} molecules', file=sys.stderr)
 
-    excl_mol_set = set()
+    excl_mol_hashes = set()
 
-    for entry in input_mol_props:
-        excl_mol_set.add(entry.hashCode)
+    for entry in input_mols:
+        excl_mol_hashes.add(entry.hashCode)
     
-    return (input_mol_props, excl_mol_set)
+    return (input_mols, excl_mol_hashes)
 
-def loadExcludeMolecules(args: argparse.Namespace, excl_mol_set: set) -> None:
+def loadExcludeMolecules(args: argparse.Namespace, excl_mol_hashes: set) -> None:
     print(f'Loading exclude molecule list from file \'{args.excl_mols}\'...', file=sys.stderr)
 
     mol_reader = Chem.MoleculeReader(args.excl_mols)
@@ -452,7 +448,7 @@ def loadExcludeMolecules(args: argparse.Namespace, excl_mol_set: set) -> None:
     while mol_reader.read(mol):
         Chem.calcBasicProperties(mol, False)
         
-        excl_mol_set.add(Chem.calcHashCode(mol, Chem.AtomPropertyFlag.TYPE, Chem.BondPropertyFlag.ORDER | Chem.BondPropertyFlag.AROMATICITY))
+        excl_mol_hashes.add(Chem.calcHashCode(mol, Chem.AtomPropertyFlag.TYPE, Chem.BondPropertyFlag.ORDER | Chem.BondPropertyFlag.AROMATICITY))
         
     print(f' -> Read {mol_reader.getNumRecords()} molecules', file=sys.stderr)
     
@@ -468,18 +464,18 @@ def process(args):
         sys.exit('Error: missing output file argument')
 
     decoy_mol_reader = Chem.MoleculeReader(args.decoy_db)
-    input_mol_props, excl_mol_set = loadInputMolecules(args)
+    input_mols, excl_mol_hashes = loadInputMolecules(args)
 
     if args.excl_mols:
-        loadExcludeMolecules(args, excl_mol_set)
+        loadExcludeMolecules(args, excl_mol_hashes)
     
-    decoy_mol_props = loadDecoyDBMolProperties(args)
-    decoy_mol_props = findPropMatchingDecoyCandidates(input_mol_props, decoy_mol_props, excl_mol_set, args)
-    decoy_mol_props = filterDecoysByInputMolSim(decoy_mol_reader, input_mol_props, decoy_mol_props)
-    decoy_mol_props = filterDecoysByDiversity(decoy_mol_props)
-    decoy_mol_props = selectOutputDecoys(input_mol_props, decoy_mol_props, args)
+    decoy_mols = loadDecoyDBMolProperties(args)
+    decoy_mols = findPropMatchingDecoyCandidates(input_mols, decoy_mols, excl_mol_hashes, args)
+    decoy_mols = filterDecoysByInputMolSim(decoy_mol_reader, input_mols, decoy_mols)
+    decoy_mols = filterDecoysByDiversity(decoy_mols)
 
-    outputDecoys(decoy_mol_props, decoy_mol_reader, args)
+    selectOutputDecoys(input_mols, decoy_mols, args)
+    outputDecoys(input_mols, decoy_mol_reader, args)
 
 if __name__ == '__main__':
     process(parseArguments())
