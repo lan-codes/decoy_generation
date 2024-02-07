@@ -237,10 +237,10 @@ def findPropMatchingDecoyCandidates(input_mols: list, decoy_mols: list, excl_mol
     return matched_decoys
 
 def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mols: list, decoy_mols: list) -> list:
-    ecfp_gen = Descr.CircularFingerprintGenerator()
-    
     print(f'Removing decoy candidates with input molecule Tanimoto similarity > {MAX_DECOY_INPUT_MOL_SIM}...', file=sys.stderr)
 
+    ecfp_gen = Descr.CircularFingerprintGenerator()
+        
     for input_mol in input_mols:
         input_mol.ecfp = Util.BitSet(ECFP4_LENGTH)
 
@@ -452,7 +452,7 @@ def loadExcludeMolecules(args: argparse.Namespace, excl_mol_hashes: set) -> None
         
     print(f' -> Read {mol_reader.getNumRecords()} molecules', file=sys.stderr)
     
-def process(args):
+def main(args):
     if args.calc_props:
         calcDecoyDBMolProperties(args)
         return
@@ -478,4 +478,4 @@ def process(args):
     outputDecoys(input_mols, decoy_mol_reader, args)
 
 if __name__ == '__main__':
-    process(parseArguments())
+    main(parseArguments())
