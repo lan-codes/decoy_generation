@@ -382,10 +382,10 @@ def readMolsAndCalcProperties(reader: Chem.MoleculeReader, store_mol: bool) -> l
     mol = Chem.BasicMolecule()
 
     while reader.read(mol):
-        if (reader.getRecordIndex() % 1000) == 0:
-            print(f' -> Passed {reader.getRecordIndex()}th molecule', file=sys.stderr, end='\r')
-
         props = MolPropData.calculate(mol, reader.getRecordIndex() - 1)
+
+        if (reader.getRecordIndex() % 1000) == 0:
+            print(f' -> Processed {reader.getRecordIndex()} molecules', file=sys.stderr, end='\r')
 
         if (store_mol):
             props.molecule = mol
