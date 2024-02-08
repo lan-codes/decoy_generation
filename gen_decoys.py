@@ -160,7 +160,7 @@ def parseArguments():
                         help='[Optional] Moleular weight matching tolerance (default: 20.0).',
                         metavar='<float>',
                         type=float,
-                        default=20.0)
+                        default=15.0)
     parser.add_argument('--charge-tol',
                         dest='charge_tol',
                         required=False,
@@ -174,28 +174,28 @@ def parseArguments():
                         help='[Optional] LogP matching tolerance (default: 1.0).',
                         metavar='<float>',
                         type=float,
-                        default=1.5)
+                        default=0.5)
     parser.add_argument('--rbc-tol',
                         dest='rbc_tol',
                         required=False,
                         help='[Optional] Rotatable bond count matching tolerance (default: 1).',
                         metavar='<int>',
                         type=int,
-                        default=1)
+                        default=0)
     parser.add_argument('--hba-tol',
                         dest='hba_tol',
                         required=False,
                         help='[Optional] H-bond acceptor atom count matching tolerance (default: 1).',
                         metavar='<int>',
                         type=int,
-                        default=1)
+                        default=0)
     parser.add_argument('--hbd-tol',
                         dest='hbd_tol',
                         required=False,
                         help='[Optional] H-bond donor atom count matching tolerance (default: 1).',
                         metavar='<int>',
                         type=int,
-                        default=1)
+                        default=0)
     parser.add_argument('--calc-props',
                         dest='calc_props',
                         required=False,
