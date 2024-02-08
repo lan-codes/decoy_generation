@@ -28,6 +28,7 @@ import CDPL.Chem as Chem
 import CDPL.MolProp as MolProp
 import CDPL.Descr as Descr
 import CDPL.Util as Util
+import CDPL.Base as Base
 
 
 MAX_POOL_SIZE           = 10000
@@ -360,7 +361,9 @@ def outputDecoys(input_mols: list, decoy_mol_reader: Chem.MoleculeReader, args: 
 
     mol_writer = Chem.MolecularGraphWriter(args.output)
     mol = Chem.BasicMolecule()
-    
+
+    Chem.setMultiConfExportParameter(mol_writer, False)
+
     for input_mol in input_mols:
         for decoy_mol in input_mol.decoys:
             if not decoy_mol_reader.read(decoy_mol.index, mol):
@@ -381,20 +384,29 @@ def readMolsAndCalcProperties(reader: Chem.MoleculeReader, store_mol: bool) -> l
     prop_table = []
     mol = Chem.BasicMolecule()
 
-    while reader.read(mol):
-        props = MolPropData.calculate(mol, reader.getRecordIndex() - 1)
+    Chem.setMultiConfImportParameter(reader, False)
 
-        if (reader.getRecordIndex() % 1000) == 0:
-            print(f' -> Processed {reader.getRecordIndex()} molecules', file=sys.stderr, end='\r')
+    while True:
+        try:
+            while reader.read(mol):
+                props = MolPropData.calculate(mol, reader.getRecordIndex() - 1)
 
-        if (store_mol):
-            props.molecule = mol
-            mol = Chem.BasicMolecule()
+                if (reader.getRecordIndex() % 1000) == 0:
+                    print(f' -> Processed {reader.getRecordIndex()} molecules', file=sys.stderr, end='\r')
 
-        prop_table.append(props)
+                if (store_mol):
+                    props.molecule = mol
+                    mol = Chem.BasicMolecule()
 
-    return prop_table
+                prop_table.append(props)
 
+            return prop_table
+        
+        except Base.IOError as e:
+             print(f' -> Error: reading molecule at index {reader.getRecordIndex()} failed', file=sys.stderr)
+
+             reader.setRecordIndex(reader.getRecordIndex() + 1)
+ 
 def calcDecoyDBMolProperties(args: argparse.Namespace) -> None:
     print(f'Calculating properties for molecules in \'{args.decoy_db}\'...', file=sys.stderr)
 
@@ -442,6 +454,8 @@ def loadExcludeMolecules(args: argparse.Namespace, excl_mol_hashes: set) -> None
     mol_reader = Chem.MoleculeReader(args.excl_mols)
     mol = Chem.BasicMolecule()
     
+    Chem.setMultiConfImportParameter(mol_reader, False)
+    
     while mol_reader.read(mol):
         Chem.calcBasicProperties(mol, False)
         
@@ -462,6 +476,8 @@ def main(args):
 
     decoy_mol_reader = Chem.MoleculeReader(args.decoy_db)
     input_mols, excl_mol_hashes = loadInputMolecules(args)
+    
+    Chem.setMultiConfImportParameter(decoy_mol_reader, False)
 
     if args.excl_mols:
         loadExcludeMolecules(args, excl_mol_hashes)
