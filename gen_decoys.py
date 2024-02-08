@@ -157,7 +157,7 @@ def parseArguments():
     parser.add_argument('--mw-tol',
                         dest='mw_tol',
                         required=False,
-                        help='[Optional] Moleular weight matching tolerance (default: 20.0).',
+                        help='[Optional] Moleular weight matching tolerance (default: 15.0).',
                         metavar='<float>',
                         type=float,
                         default=15.0)
@@ -171,7 +171,7 @@ def parseArguments():
     parser.add_argument('--logp-tol',
                         dest='logp_tol',
                         required=False,
-                        help='[Optional] LogP matching tolerance (default: 1.0).',
+                        help='[Optional] LogP matching tolerance (default: 0.5).',
                         metavar='<float>',
                         type=float,
                         default=0.5)
@@ -181,21 +181,21 @@ def parseArguments():
                         help='[Optional] Rotatable bond count matching tolerance (default: 1).',
                         metavar='<int>',
                         type=int,
-                        default=0)
+                        default=1)
     parser.add_argument('--hba-tol',
                         dest='hba_tol',
                         required=False,
                         help='[Optional] H-bond acceptor atom count matching tolerance (default: 1).',
                         metavar='<int>',
                         type=int,
-                        default=0)
+                        default=1)
     parser.add_argument('--hbd-tol',
                         dest='hbd_tol',
                         required=False,
                         help='[Optional] H-bond donor atom count matching tolerance (default: 1).',
                         metavar='<int>',
                         type=int,
-                        default=0)
+                        default=1)
     parser.add_argument('--calc-props',
                         dest='calc_props',
                         required=False,
