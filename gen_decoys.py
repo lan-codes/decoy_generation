@@ -42,7 +42,7 @@ class MolPropData():
     def __init__(self):
         pass
 
-    def matches(self, props: object, exact_match: bool, params: argparse.Namespace) -> bool:
+    def matches(self, props: object, strict_match: bool, params: argparse.Namespace) -> bool:
         if abs(self.weight - props.weight) > params.mw_tol:
             return False
  
@@ -52,7 +52,7 @@ class MolPropData():
         if abs(self.netCharge - props.netCharge) > params.charge_tol:
             return False
 
-        if not exact_match:
+        if not strict_match:
             if abs(self.numRotBonds - props.numRotBonds) > (params.rbc_tol + 1):
                 return False
 
