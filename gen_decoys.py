@@ -42,7 +42,7 @@ class MolPropData():
     def __init__(self):
         pass
 
-    def matches(self, props: object, params: argparse.Namespace) -> bool:
+    def matches(self, props: object, exact_match: bool, params: argparse.Namespace) -> bool:
         if abs(self.weight - props.weight) > params.mw_tol:
             return False
  
@@ -52,6 +52,15 @@ class MolPropData():
         if abs(self.netCharge - props.netCharge) > params.charge_tol:
             return False
 
+        if not exact_match:
+            if abs(self.numRotBonds - props.numRotBonds) > (params.rbc_tol + 1):
+                return False
+
+            if abs(self.numHBA - props.numHBA) > (params.hba_tol + 1):
+                return False
+
+            return (abs(self.numHBD - props.numHBD) <= (params.hbd_tol + 1))
+        
         if abs(self.numRotBonds - props.numRotBonds) > params.rbc_tol:
             return False
 
@@ -157,10 +166,10 @@ def parseArguments():
     parser.add_argument('--mw-tol',
                         dest='mw_tol',
                         required=False,
-                        help='[Optional] Moleular weight matching tolerance (default: 15.0).',
+                        help='[Optional] Moleular weight matching tolerance (default: 20.0).',
                         metavar='<float>',
                         type=float,
-                        default=15.0)
+                        default=20.0)
     parser.add_argument('--charge-tol',
                         dest='charge_tol',
                         required=False,
@@ -171,31 +180,31 @@ def parseArguments():
     parser.add_argument('--logp-tol',
                         dest='logp_tol',
                         required=False,
-                        help='[Optional] LogP matching tolerance (default: 0.5).',
+                        help='[Optional] LogP matching tolerance (default: 0.75).',
                         metavar='<float>',
                         type=float,
-                        default=0.5)
+                        default=0.75)
     parser.add_argument('--rbc-tol',
                         dest='rbc_tol',
                         required=False,
-                        help='[Optional] Rotatable bond count matching tolerance (default: 1).',
+                        help='[Optional] Rotatable bond count matching tolerance (default: 0).',
                         metavar='<int>',
                         type=int,
-                        default=1)
+                        default=0)
     parser.add_argument('--hba-tol',
                         dest='hba_tol',
                         required=False,
-                        help='[Optional] H-bond acceptor atom count matching tolerance (default: 1).',
+                        help='[Optional] H-bond acceptor atom count matching tolerance (default: 0).',
                         metavar='<int>',
                         type=int,
-                        default=1)
+                        default=0)
     parser.add_argument('--hbd-tol',
                         dest='hbd_tol',
                         required=False,
-                        help='[Optional] H-bond donor atom count matching tolerance (default: 1).',
+                        help='[Optional] H-bond donor atom count matching tolerance (default: 0).',
                         metavar='<int>',
                         type=int,
-                        default=1)
+                        default=0)
     parser.add_argument('--calc-props',
                         dest='calc_props',
                         required=False,
@@ -221,7 +230,7 @@ def findPropMatchingDecoyCandidates(input_mols: list, decoy_mols: list, excl_mol
             if decoy_mols[i].hashCode in excl_mol_hashes:
                 continue
             
-            if input_mol.matches(decoy_mols[i], params):
+            if input_mol.matches(decoy_mols[i], True, params):
                 matched_decoys.append(decoy_mols[i])
                 used_mask.set(i)
 
@@ -317,6 +326,38 @@ def filterDecoysByDiversity(decoy_mols: list) -> list:
 
     return res_decoys
 
+def assignDecoys(input_mols: list, decoy_mols: list, first_pass: bool, params: argparse.Namespace) -> tuple:
+    unass_decoy_mols = []
+    
+    for decoy_mol in decoy_mols:
+        sel_ipt_mol = None
+        
+        for input_mol in input_mols:
+            if first_pass:
+                if len(input_mol.decoys) >= params.max_num_decoys:
+                    continue
+            else:
+                if len(input_mol.decoys) >= params.min_num_decoys:
+                    continue
+                
+            if not input_mol.matches(decoy_mol, first_pass, params):
+                continue
+            
+            if not sel_ipt_mol or len(input_mol.decoys) < len(sel_ipt_mol.decoys):
+                sel_ipt_mol = input_mol
+
+        if not sel_ipt_mol:
+            unass_decoy_mols.append(decoy_mol)
+            continue
+
+        sel_ipt_mol.decoys.append(decoy_mol)
+       
+    for input_mol in input_mols:
+        if len(input_mol.decoys) < params.min_num_decoys:
+            return False, unass_decoy_mols
+            
+    return True, unass_decoy_mols
+        
 def selectOutputDecoys(input_mols: list, decoy_mols: list, params: argparse.Namespace) -> None:
     print('Selecting output decoys...', file=sys.stderr)
 
@@ -325,32 +366,16 @@ def selectOutputDecoys(input_mols: list, decoy_mols: list, params: argparse.Name
     for input_mol in input_mols:
         input_mol.decoys = []
 
+    complete, decoy_mols = assignDecoys(input_mols, decoy_mols, True, params)
+    
+    if not complete:
+        assignDecoys(input_mols, decoy_mols, False, params)
+
     num_selected = 0
-        
-    for decoy_mol in decoy_mols:
-        sel_ipt_mol = None
-        
-        for input_mol in input_mols:
-            if len(input_mol.decoys) >= params.max_num_decoys:
-                continue
-
-            if not input_mol.matches(decoy_mol, params):
-                continue
             
-            if not sel_ipt_mol or len(input_mol.decoys) < len(sel_ipt_mol.decoys):
-                sel_ipt_mol = input_mol
-
-        if not sel_ipt_mol:
-            continue
-
-        sel_ipt_mol.decoys.append(decoy_mol)
-        
-        num_selected += 1
-
-        if num_selected >= len(input_mols) * params.max_num_decoys:
-            break
-
     for input_mol in input_mols:
+        num_selected += len(input_mol.decoys)
+        
         if len(input_mol.decoys) < params.min_num_decoys:
             print(f' Warning: insufficient number of decoys for input molecule \'{input_mol.name}\' ({len(input_mol.decoys)})', file=sys.stderr)
         
