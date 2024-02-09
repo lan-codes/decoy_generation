@@ -288,7 +288,7 @@ def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mols:
 
         res_decoys.append(decoy_mol)
 
-    print(f' -> Discarded {len(decoy_mols) - len(res_decoys)} decoy candidates, {len(res_decoys)} remaining', file=sys.stderr)
+    print(f' -> Discarded {len(decoy_mols) - len(res_decoys)} candidates, {len(res_decoys)} remaining', file=sys.stderr)
     
     return res_decoys
 
@@ -321,7 +321,7 @@ def filterDecoysByDiversity(decoy_mols: list) -> list:
         if res_decoys[sim_entry].maxInputSim > decoy_mol.maxInputSim:
             res_decoys[sim_entry] = decoy_mol
             
-    print(f' -> Discared {len(decoy_mols) - len(res_decoys)} decoy candidates, {len(res_decoys)} final candidates remaining', file=sys.stderr)
+    print(f' -> Discared {len(decoy_mols) - len(res_decoys)} candidates, {len(res_decoys)} final candidates remaining', file=sys.stderr)
 
     return res_decoys
 
