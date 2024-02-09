@@ -304,22 +304,14 @@ def filterDecoysByDiversity(decoy_mols: list) -> list:
             print(f' -> Clustered {num_proc} candidates', file=sys.stderr, end='\r')
             
         sim_entry = -1
-        discard = False
         
         for i in range(len(res_decoys) - 1, -1, -1):
             sim = Descr.calcTanimotoSimilarity(res_decoys[i].ecfp, decoy_mol.ecfp)
 
             if sim > MAX_DECOY_DECOY_SIM:
-                if sim_entry >= 0:
-                    discard = True
-                    break
-                
                 sim_entry = i
 
         num_proc += 1
-                
-        if discard:
-            continue
         
         if sim_entry < 0:
             res_decoys.append(decoy_mol)
