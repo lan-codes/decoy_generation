@@ -310,7 +310,8 @@ def filterDecoysByDiversity(decoy_mols: list) -> list:
 
             if sim > MAX_DECOY_DECOY_SIM:
                 sim_entry = i
-
+                break
+            
         num_proc += 1
         
         if sim_entry < 0:
