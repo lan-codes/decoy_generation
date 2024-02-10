@@ -262,7 +262,7 @@ def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mols:
     
     for decoy_mol in decoy_mols:
         if not decoy_mol_reader.read(decoy_mol.index, mol):
-            print(f' -> Error: could not read decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
+            print(f' Error: could not read decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
             continue
 
         Chem.calcBasicProperties(mol, False)
@@ -391,13 +391,13 @@ def outputDecoys(input_mols: list, decoy_mol_reader: Chem.MoleculeReader, args: 
     for input_mol in input_mols:
         for decoy_mol in input_mol.decoys:
             if not decoy_mol_reader.read(decoy_mol.index, mol):
-                print(f' -> Error: could not read decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
+                print(f' Error: could not read decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
                 continue
 
             Chem.calcBasicProperties(mol, False)
         
             if not mol_writer.write(mol):
-                print(f' -> Error: could not output decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
+                print(f' Error: could not output decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
         
     mol_writer.close()
     decoy_mol_reader.close()
@@ -427,7 +427,7 @@ def readMolsAndCalcProperties(reader: Chem.MoleculeReader, store_mol: bool) -> l
             return prop_table
         
         except Base.IOError as e:
-             print(f' -> Error: reading molecule at index {reader.getRecordIndex()} failed', file=sys.stderr)
+             print(f' Error: reading molecule at index {reader.getRecordIndex()} failed', file=sys.stderr)
 
              reader.setRecordIndex(reader.getRecordIndex() + 1)
  
