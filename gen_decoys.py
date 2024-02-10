@@ -69,53 +69,48 @@ class MolPropData():
 
         return (abs(self.numHBD - props.numHBD) <= params.hbd_tol)
 
-    @staticmethod
-    def calculate(mol: Chem.Molecule, mol_idx: int) -> object:
+    def calculate(self, mol: Chem.Molecule, mol_idx: int) -> object:
         Chem.initSubstructureSearchTarget(mol, False)
 
-        props = MolPropData()
+        self.index = mol_idx
+        self.name = Chem.getName(mol)
+        self.weight = MolProp.calcMass(mol)
+        self.logP = MolProp.calcXLogP(mol)
+        self.netCharge = MolProp.getNetFormalCharge(mol)
+        self.numRotBonds = MolProp.getRotatableBondCount(mol)
+        self.numHBA = MolProp.getHBondAcceptorAtomCount(mol)
+        self.numHBD = MolProp.getHBondDonorAtomCount(mol)
+        self.hashCode = Chem.calcHashCode(mol, Chem.AtomPropertyFlag.TYPE,
+                                          Chem.BondPropertyFlag.ORDER | Chem.BondPropertyFlag.AROMATICITY)
+        self.molecule = mol
 
-        props.index = mol_idx
-        props.name = Chem.getName(mol)
-        props.weight = MolProp.calcMass(mol)
-        props.logP = MolProp.calcXLogP(mol)
-        props.netCharge = MolProp.getNetFormalCharge(mol)
-        props.numRotBonds = MolProp.getRotatableBondCount(mol)
-        props.numHBA = MolProp.getHBondAcceptorAtomCount(mol)
-        props.numHBD = MolProp.getHBondDonorAtomCount(mol)
-        props.hashCode = Chem.calcHashCode(mol, Chem.AtomPropertyFlag.TYPE,
-                                           Chem.BondPropertyFlag.ORDER | Chem.BondPropertyFlag.AROMATICITY)
-        return props
+    def read(self, f: io.TextIOBase, skip_header: bool) -> list:
+        if skip_header:
+             f.readline()
 
-    @staticmethod
-    def read(f: io.TextIOBase) -> list:
-        prop_table = []
+        line = f.readline()
 
-        f.readline()
+        if not line:
+             return None
+             
+        fields = line.strip().split(',')
 
-        for line in f:
-            fields = line.strip().split(',')
+        self.index = int(fields[0])
+        self.weight = float(fields[1])
+        self.logP = float(fields[2])
+        self.netCharge = int(fields[3])
+        self.numRotBonds = int(fields[4])
+        self.numHBA = int(fields[5])
+        self.numHBD = int(fields[6])
+        self.hashCode = int(fields[7])
 
-            props = MolPropData()
-            props.index = int(fields[0])
-            props.weight = float(fields[1])
-            props.logP = float(fields[2])
-            props.netCharge = int(fields[3])
-            props.numRotBonds = int(fields[4])
-            props.numHBA = int(fields[5])
-            props.numHBD = int(fields[6])
-            props.hashCode = int(fields[7])
+        return self
 
-            prop_table.append(props)
+    def write(self, f: io.TextIOBase, write_header: bool) -> None:
+        if write_header:
+            f.write('Mol. Index,MW,XLogP,Net Charge,#Rot. Bonds,#HBA,#HBD,Hash Code\n')
 
-        return prop_table
-
-    @staticmethod
-    def write(table: list, f: io.TextIOBase) -> None:
-        f.write('Mol. Index,MW,XLogP,Net Charge,#Rot. Bonds,#HBA,#HBD,Hash Code\n')
-
-        for entry in table:
-            f.write(f'{entry.index},{entry.weight},{entry.logP},{entry.netCharge},{entry.numRotBonds},{entry.numHBA},{entry.numHBD},{entry.hashCode}\n')
+        f.write(f'{self.index},{self.weight},{self.logP},{self.netCharge},{self.numRotBonds},{self.numHBA},{self.numHBD},{self.hashCode}\n')
 
     
 def parseArguments():
@@ -214,30 +209,32 @@ def parseArguments():
  
     return parser.parse_args()
 
-def findPropMatchingDecoyCandidates(input_mols: list, decoy_mols: list, excl_mol_hashes: set, params: argparse.Namespace) -> list:
-    print('Searching for property matching molecules in decoy database...', file=sys.stderr)
+def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args: argparse.Namespace) -> list:
+    print('Searching for property matching molecules in decoy database \'{args.decoy_db_props}\'...', file=sys.stderr)
 
-    used_mask = Util.BitSet(len(decoy_mols))
     matched_decoys = []
-
+    decoy_props = MolPropData()
+    
     for input_mol in input_mols:
         num_sel = 0
+        skip_header = True
+        
+        with open(args.decoy_db_props, 'r') as f:
+            while decoy_props.read(f, skip_header):
+                skip_header = False
 
-        for i in range(len(decoy_mols)):
-            if used_mask.test(i):
-                continue
-
-            if decoy_mols[i].hashCode in excl_mol_hashes:
-                continue
+                if decoy_props.hashCode in excl_mol_hashes:
+                    continue
             
-            if input_mol.matches(decoy_mols[i], True, params):
-                matched_decoys.append(decoy_mols[i])
-                used_mask.set(i)
+                if input_mol.matches(decoy_props, True, args):
+                    matched_decoys.append(decoy_props)
+                    excl_mol_hashes.add(decoy_props.hashCode)
 
-                num_sel += 1
+                    decoy_props = MolPropData()
+                    num_sel += 1
 
-                if num_sel >= MAX_POOL_SIZE:
-                    break
+                    if num_sel >= MAX_POOL_SIZE:
+                        break
 
     print(f' -> Found {len(matched_decoys)} decoy candidates', file=sys.stderr)
 
@@ -404,69 +401,75 @@ def outputDecoys(input_mols: list, decoy_mol_reader: Chem.MoleculeReader, args: 
     
     print('Done!')   
 
-def readMolsAndCalcProperties(reader: Chem.MoleculeReader, store_mol: bool) -> list:
-    prop_table = []
-    mol = Chem.BasicMolecule()
-
-    Chem.setMultiConfImportParameter(reader, False)
-
-    while True:
-        try:
-            while reader.read(mol):
-                props = MolPropData.calculate(mol, reader.getRecordIndex() - 1)
-
-                if (reader.getRecordIndex() % 1000) == 0:
-                    print(f' -> Processed {reader.getRecordIndex()} molecules', file=sys.stderr, end='\r')
-
-                if (store_mol):
-                    props.molecule = mol
-                    mol = Chem.BasicMolecule()
-
-                prop_table.append(props)
-
-            return prop_table
-        
-        except Base.IOError as e:
-             print(f' Error: reading molecule at index {reader.getRecordIndex()} failed', file=sys.stderr)
-
-             reader.setRecordIndex(reader.getRecordIndex() + 1)
- 
 def calcDecoyDBMolProperties(args: argparse.Namespace) -> None:
     print(f'Calculating properties for molecules in \'{args.decoy_db}\'...', file=sys.stderr)
-
+    print(f' Writing properties to file \'{args.decoy_db_props}\'', file=sys.stderr)
+    
     mol_reader = Chem.MoleculeReader(args.decoy_db)
-    prop_table = readMolsAndCalcProperties(mol_reader, False)
+    mol = Chem.BasicMolecule()
+    decoy_props = MolPropData()
+    write_header = True
 
-    print(f' -> Calculated properties for {len(prop_table)} molecules', file=sys.stderr)
-    print(f'Writing properties to file \'{args.decoy_db_props}\'...', file=sys.stderr)
-        
+    Chem.setMultiConfImportParameter(mol_reader, False)
+    
     with open(args.decoy_db_props, 'w') as f:
-        MolPropData.write(prop_table, f)
+        while True:
+            try:
+                while mol_reader.read(mol):
+                    if (mol_reader.getRecordIndex() % 1000) == 0:
+                        print(f' -> Processed {mol_reader.getRecordIndex()} molecules', file=sys.stderr, end='\r')
 
+                    decoy_props.calculate(mol, mol_reader.getRecordIndex() - 1)
+                    decoy_props.write(f, write_header)
+                    
+                    write_header = False
+
+                break
+                    
+            except Base.IOError as e:
+                print(f' Error: reading molecule at index {mol_reader.getRecordIndex()} failed', file=sys.stderr)
+
+                reader.setRecordIndex(mol_reader.getRecordIndex() + 1)
+             
     mol_reader.close()
     
+    print(f' -> Calculated properties for {mol_reader.getRecordIndex()} molecules', file=sys.stderr)
     print('Done!')   
-
-def loadDecoyDBMolProperties(args: argparse.Namespace) -> list:
-    print(f'Loading precalculated decoy database molecule properties from file \'{args.decoy_db_props}\'...', file=sys.stderr)
-
-    with open(args.decoy_db_props, 'r') as f:
-        decoy_db_props = MolPropData.read(f)
-
-        print(f' -> Read {len(decoy_db_props)} records', file=sys.stderr)
-
-        return decoy_db_props
 
 def loadInputMolecules(args: argparse.Namespace) -> tuple:
     print(f'Loading input molecules from file \'{args.input}\'...', file=sys.stderr)
 
     mol_reader = Chem.MoleculeReader(args.input)
-    input_mols = readMolsAndCalcProperties(mol_reader, True)
+    input_mols = []
+    mol = Chem.BasicMolecule()
+    
+    Chem.setMultiConfImportParameter(mol_reader, False)
+
+    while True:
+        try:
+            while mol_reader.read(mol):
+                if (mol_reader.getRecordIndex() % 1000) == 0:
+                    print(f' -> Processed {mol_reader.getRecordIndex()} molecules', file=sys.stderr, end='\r')
+
+                props = MolPropData()
+
+                props.calculate(mol, mol_reader.getRecordIndex() - 1)
+
+                input_mols.append(props)
+                
+                mol = Chem.BasicMolecule()
+
+            break
+        
+        except Base.IOError as e:
+             print(f' Error: reading molecule at index {mol_reader.getRecordIndex()} failed', file=sys.stderr)
+
+             mol_reader.setRecordIndex(mol_reader.getRecordIndex() + 1)
 
     print(f' -> Read {len(input_mols)} molecules', file=sys.stderr)
 
     excl_mol_hashes = set()
-
+    
     for entry in input_mols:
         excl_mol_hashes.add(entry.hashCode)
     
@@ -479,13 +482,22 @@ def loadExcludeMolecules(args: argparse.Namespace, excl_mol_hashes: set) -> None
     mol = Chem.BasicMolecule()
     
     Chem.setMultiConfImportParameter(mol_reader, False)
-    
-    while mol_reader.read(mol):
-        Chem.calcBasicProperties(mol, False)
+
+    while True:
+        try:
+            while mol_reader.read(mol):
+                Chem.calcBasicProperties(mol, False)
         
-        excl_mol_hashes.add(Chem.calcHashCode(mol, Chem.AtomPropertyFlag.TYPE, Chem.BondPropertyFlag.ORDER | Chem.BondPropertyFlag.AROMATICITY))
+                excl_mol_hashes.add(Chem.calcHashCode(mol, Chem.AtomPropertyFlag.TYPE, Chem.BondPropertyFlag.ORDER | Chem.BondPropertyFlag.AROMATICITY))
+
+            break
         
-    print(f' -> Read {mol_reader.getNumRecords()} molecules', file=sys.stderr)
+        except Base.IOError as e:
+             print(f' Error: reading molecule at index {mol_reader.getRecordIndex()} failed', file=sys.stderr)
+
+             reader.setRecordIndex(mol_reader.getRecordIndex() + 1)
+        
+    print(f' -> Read {mol_reader.getRecordIndex()} molecules', file=sys.stderr)
     
 def main(args):
     if args.calc_props:
@@ -506,8 +518,7 @@ def main(args):
     if args.excl_mols:
         loadExcludeMolecules(args, excl_mol_hashes)
     
-    decoy_mols = loadDecoyDBMolProperties(args)
-    decoy_mols = findPropMatchingDecoyCandidates(input_mols, decoy_mols, excl_mol_hashes, args)
+    decoy_mols = findPropMatchingDecoyCandidates(input_mols, excl_mol_hashes, args)
     decoy_mols = filterDecoysByInputMolSim(decoy_mol_reader, input_mols, decoy_mols)
     decoy_mols = filterDecoysByDiversity(decoy_mols)
 
