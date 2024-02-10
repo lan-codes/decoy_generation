@@ -214,10 +214,13 @@ def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args
 
     matched_decoys = []
     decoy_props = MolPropData()
+    i = 1
     
     for input_mol in input_mols:
         num_sel = 0
         skip_header = True
+
+        print(f' Trying to find matching decoys for input molecule {i}...', file=sys.stderr, end='\r')
         
         with open(args.decoy_db_props, 'r') as f:
             while decoy_props.read(f, skip_header):
@@ -236,6 +239,8 @@ def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args
                     if num_sel >= MAX_POOL_SIZE:
                         break
 
+        i += 1
+        
     print(f' -> Found {len(matched_decoys)} decoy candidates', file=sys.stderr)
 
     return matched_decoys
