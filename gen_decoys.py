@@ -241,7 +241,7 @@ def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args
 
         i += 1
         
-    print(f' -> Found {len(matched_decoys)} decoy candidates', file=sys.stderr)
+    print(f' -> Found {len(matched_decoys)} decoy candidates             ', file=sys.stderr)
 
     return matched_decoys
 
@@ -261,12 +261,16 @@ def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mols:
     res_decoys = []
     mol = Chem.BasicMolecule()
     ecfp = Util.BitSet(ECFP4_LENGTH)
+    num_proc = 0
     
     for decoy_mol in decoy_mols:
         if not decoy_mol_reader.read(decoy_mol.index, mol):
             print(f' Error: could not read decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
             continue
 
+        if (num_proc % 1000) == 0:
+            print(f' -> Processed {num_proc} candidates', file=sys.stderr, end='\r')
+            
         Chem.calcBasicProperties(mol, False)
 
         ecfp_gen.generate(mol) 
@@ -280,6 +284,8 @@ def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mols:
             if max_sim > MAX_DECOY_INPUT_MOL_SIM:
                 break
 
+        num_proc += 1
+            
         if max_sim > MAX_DECOY_INPUT_MOL_SIM:
             continue
 
