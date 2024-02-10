@@ -241,7 +241,7 @@ def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args
 
         i += 1
         
-    print(f' -> Found {len(matched_decoys)} decoy candidates             ', file=sys.stderr)
+    print(f' -> Found {len(matched_decoys)} decoy candidates                   ', file=sys.stderr)
 
     return matched_decoys
 
