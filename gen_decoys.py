@@ -210,7 +210,7 @@ def parseArguments():
     return parser.parse_args()
 
 def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args: argparse.Namespace) -> list:
-    print('Searching for property matching molecules in decoy database \'{args.decoy_db_props}\'...', file=sys.stderr)
+    print(f'Searching for property matching molecules in decoy database \'{args.decoy_db_props}\'...', file=sys.stderr)
 
     matched_decoys = []
     decoy_props = MolPropData()
