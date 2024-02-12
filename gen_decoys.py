@@ -110,7 +110,7 @@ class MolPropData():
         if write_header:
             f.write('Mol. Index,MW,XLogP,Net Charge,#Rot. Bonds,#HBA,#HBD,Hash Code\n')
 
-        f.write(f'{self.index},{self.weight},{self.logP},{self.netCharge},{self.numRotBonds},{self.numHBA},{self.numHBD},{self.hashCode}\n')
+        f.write(f'{self.index},{self.weight:.3f},{self.logP:.3f},{self.netCharge},{self.numRotBonds},{self.numHBA},{self.numHBD},{self.hashCode}\n')
 
     
 def parseArguments():
