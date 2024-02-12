@@ -175,10 +175,10 @@ def parseArguments():
     parser.add_argument('--logp-tol',
                         dest='logp_tol',
                         required=False,
-                        help='[Optional] LogP matching tolerance (default: 0.75).',
+                        help='[Optional] LogP matching tolerance (default: 0.5).',
                         metavar='<float>',
                         type=float,
-                        default=0.75)
+                        default=0.5)
     parser.add_argument('--rbc-tol',
                         dest='rbc_tol',
                         required=False,
