@@ -158,6 +158,13 @@ def parseArguments():
                         help='[Optional] File with molecules that shall not be contained in the output decoy molecule list (e.g. all known actives).',
                         default=None,
                         metavar='<path>')
+    parser.add_argument('-a',
+                        dest='aggressive',
+                        required=False,
+                        help='[Optional] If not enough decoys can be assigned to an input molecule then \
+                        this option will enable a fallback search that is carried out with increased tolerances.',
+                        action='store_true',
+                        default=False)
     parser.add_argument('--mw-tol',
                         dest='mw_tol',
                         required=False,
@@ -312,15 +319,22 @@ def filterDecoysByDiversity(decoy_mols: list) -> list:
             print(f' -> Clustered {num_proc} candidates', file=sys.stderr, end='\r')
             
         sim_entry = -1
+        discard = False
         
         for i in range(len(res_decoys) - 1, -1, -1):
             sim = Descr.calcTanimotoSimilarity(res_decoys[i].ecfp, decoy_mol.ecfp)
 
             if sim > MAX_DECOY_DECOY_SIM:
+                if sim_entry >= 0:
+                    discard = True
+                    break
+                
                 sim_entry = i
-                break
             
         num_proc += 1
+
+        if discard:
+            continue
         
         if sim_entry < 0:
             res_decoys.append(decoy_mol)
@@ -375,7 +389,7 @@ def selectOutputDecoys(input_mols: list, decoy_mols: list, params: argparse.Name
 
     complete, decoy_mols = assignDecoys(input_mols, decoy_mols, True, params)
     
-    if not complete:
+    if not complete and params.aggressive:
         assignDecoys(input_mols, decoy_mols, False, params)
 
     num_selected = 0
