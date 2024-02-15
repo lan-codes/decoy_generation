@@ -23,6 +23,8 @@ import sys
 import io
 import pathlib
 import argparse
+import time
+import datetime
 
 import CDPL.Chem as Chem
 import CDPL.MolProp as MolProp
@@ -112,6 +114,16 @@ class MolPropData():
 
         f.write(f'{self.index},{self.weight:.3f},{self.logP:.3f},{self.netCharge},{self.numRotBonds},{self.numHBA},{self.numHBD},{self.hashCode}\n')
 
+    def writeReport(self, f: io.TextIOBase, write_header: bool) -> None:
+        if write_header:
+            f.write('Mol. Index,MW,XLogP,Net Charge,#Rot. Bonds,#HBA,#HBD,#Output Decoys\n')
+
+        f.write(f'{self.index},{self.weight:.3f},{self.logP:.3f},{self.netCharge},{self.numRotBonds},{self.numHBA},{self.numHBD},{len(self.decoys)}')
+
+        if len(self.decoys) != self.numFirstPassDecoys:
+            f.write(f'({self.numFirstPassDecoys})\n')
+        else:
+            f.write('\n')
     
 def parseArguments():
     parser = argparse.ArgumentParser(description='Retrieves decoys for a given set of input molecules.')
@@ -152,6 +164,26 @@ def parseArguments():
                         metavar='<int>',
                         type=int,
                         default=20)
+    parser.add_argument('-r',
+                        dest='report',
+                        required=False,
+                        help='[Optional] Write a decoy search report to the specified file.',
+                        default=None,
+                        metavar='<path>')
+    parser.add_argument('-e',
+                        dest='eq_num_decoys',
+                        required=False,
+                        help='[Optional] Reduce the number of output decoys for each input molecule to the overall minimum number of decoys \
+                        that could be assigned to a molecule but not to less than the number specified as argument.',
+                        metavar='<int>',
+                        type=int,
+                        default=None)
+    parser.add_argument('-l',
+                        dest='decoy_ass_info',
+                        required=False,
+                        help='[Optional] Prepend decoy to input molecule assignment information to the name of the output decoy molecules.',
+                        action='store_true',
+                        default=False)
     parser.add_argument('-x',
                         dest='excl_mols',
                         required=False,
@@ -227,6 +259,8 @@ def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args
         num_sel = 0
         skip_header = True
 
+        input_mol.decoyPoolSize = 0
+        
         print(f' Trying to find matching decoys for input molecule {i}...', file=sys.stderr, end='\r')
         
         with open(args.decoy_db_props, 'r') as f:
@@ -239,6 +273,8 @@ def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args
                 if input_mol.matches(decoy_props, True, args):
                     matched_decoys.append(decoy_props)
                     excl_mol_hashes.add(decoy_props.hashCode)
+
+                    input_mol.decoyPoolSize += 1
 
                     decoy_props = MolPropData()
                     num_sel += 1
@@ -372,7 +408,7 @@ def assignDecoys(input_mols: list, decoy_mols: list, first_pass: bool, params: a
             continue
 
         sel_ipt_mol.decoys.append(decoy_mol)
-       
+ 
     for input_mol in input_mols:
         if len(input_mol.decoys) < params.min_num_decoys:
             return False, unass_decoy_mols
@@ -389,18 +425,33 @@ def selectOutputDecoys(input_mols: list, decoy_mols: list, params: argparse.Name
 
     complete, decoy_mols = assignDecoys(input_mols, decoy_mols, True, params)
     
+    for input_mol in input_mols:
+        input_mol.numFirstPassDecoys = len(input_mol.decoys)
+        
     if not complete and params.aggressive:
         assignDecoys(input_mols, decoy_mols, False, params)
 
-    num_selected = 0
+    if params.eq_num_decoys:
+        min_num = params.max_num_decoys
+        
+        for input_mol in input_mols:
+            min_num = min(min_num, len(input_mol.decoys))
+
+        min_num = max(min_num, params.eq_num_decoys)
+
+        for input_mol in input_mols:
+            if len(input_mol.decoys) > min_num:
+                input_mol.decoys = input_mol.decoys[:min_num]
+                 
+    num_final = 0
             
     for input_mol in input_mols:
-        num_selected += len(input_mol.decoys)
+        num_final += len(input_mol.decoys)
         
         if len(input_mol.decoys) < params.min_num_decoys:
             print(f' Warning: insufficient number of decoys for input molecule \'{input_mol.name}\' ({len(input_mol.decoys)})', file=sys.stderr)
         
-    print(f' -> Selected {num_selected} final decoys', file=sys.stderr)
+    print(f' -> Selected {num_final} final decoys', file=sys.stderr)
 
 def outputDecoys(input_mols: list, decoy_mol_reader: Chem.MoleculeReader, args: argparse.Namespace) -> None:
     print(f'Writing decoy molecules to file \'{args.output}\'...', file=sys.stderr)
@@ -410,26 +461,38 @@ def outputDecoys(input_mols: list, decoy_mol_reader: Chem.MoleculeReader, args: 
 
     Chem.setMultiConfExportParameter(mol_writer, False)
 
-    for input_mol in input_mols:
-        for decoy_mol in input_mol.decoys:
+    for i, input_mol in enumerate(input_mols, 1):
+        for j, decoy_mol in enumerate(input_mol.decoys, 1):
             if not decoy_mol_reader.read(decoy_mol.index, mol):
                 print(f' Error: could not read decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
                 continue
 
             Chem.calcBasicProperties(mol, False)
-        
+
+            if args.decoy_ass_info:
+                Chem.setName(mol, f'{i}_{j}_{Chem.getName(mol)}')
+            
             if not mol_writer.write(mol):
                 print(f' Error: could not output decoy database molecule at index {decoy_mol.index}', file=sys.stderr)
         
     mol_writer.close()
     decoy_mol_reader.close()
+
+def writeReportFile(input_mols: list, args: argparse.Namespace) -> None:
+    print(f'Writing report to file \'{args.report}\'...', file=sys.stderr)
     
-    print('Done!')   
+    with open(args.report, 'w') as f:
+        write_header = True
+        
+        for input_mol in input_mols:
+            input_mol.writeReport(f, write_header)
+            write_header = False
 
 def calcDecoyDBMolProperties(args: argparse.Namespace) -> None:
     print(f'Calculating properties for molecules in \'{args.decoy_db}\'...', file=sys.stderr)
     print(f' Writing properties to file \'{args.decoy_db_props}\'', file=sys.stderr)
-    
+
+    start_time = time.time()
     mol_reader = Chem.MoleculeReader(args.decoy_db)
     mol = Chem.BasicMolecule()
     decoy_props = MolPropData()
@@ -459,8 +522,9 @@ def calcDecoyDBMolProperties(args: argparse.Namespace) -> None:
     mol_reader.close()
     
     print(f' -> Calculated properties for {mol_reader.getRecordIndex()} molecules', file=sys.stderr)
-    print('Done!')   
-
+    print('Done!', file=sys.stderr)   
+    print(f'Processing time: {datetime.timedelta(seconds=int(time.time() - start_time))}', file=sys.stderr)
+    
 def loadInputMolecules(args: argparse.Namespace) -> tuple:
     print(f'Loading input molecules from file \'{args.input}\'...', file=sys.stderr)
 
@@ -535,6 +599,7 @@ def main(args):
     if not args.output:
         sys.exit('Error: missing output file argument')
 
+    start_time = time.time()
     decoy_mol_reader = Chem.MoleculeReader(args.decoy_db)
     input_mols, excl_mol_hashes = loadInputMolecules(args)
     
@@ -550,5 +615,11 @@ def main(args):
     selectOutputDecoys(input_mols, decoy_mols, args)
     outputDecoys(input_mols, decoy_mol_reader, args)
 
+    if args.report:
+        writeReportFile(input_mols, args)
+
+    print('Done!', file=sys.stderr)
+    print(f'Processing time: {datetime.timedelta(seconds=int(time.time() - start_time))}', file=sys.stderr)
+    
 if __name__ == '__main__':
     main(parseArguments())
