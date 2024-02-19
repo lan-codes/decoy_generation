@@ -116,14 +116,10 @@ class MolPropData():
 
     def writeReport(self, f: io.TextIOBase, write_header: bool) -> None:
         if write_header:
-            f.write('Mol. Index,MW,XLogP,Net Charge,#Rot. Bonds,#HBA,#HBD,#Output Decoys\n')
+            f.write('Mol. Index,MW,XLogP,Net Charge,#Rot. Bonds,#HBA,#HBD,#Assigned Decoys,#Output Decoys\n')
 
-        f.write(f'{self.index},{self.weight:.3f},{self.logP:.3f},{self.netCharge},{self.numRotBonds},{self.numHBA},{self.numHBD},{len(self.decoys)}')
+        f.write(f'{self.index},{self.weight:.3f},{self.logP:.3f},{self.netCharge},{self.numRotBonds},{self.numHBA},{self.numHBD},{self.numAssDecoys},{len(self.decoys)}\n')
 
-        if len(self.decoys) != self.numFirstPassDecoys:
-            f.write(f'({self.numFirstPassDecoys})\n')
-        else:
-            f.write('\n')
     
 def parseArguments():
     parser = argparse.ArgumentParser(description='Retrieves decoys for a given set of input molecules.')
@@ -173,10 +169,11 @@ def parseArguments():
     parser.add_argument('-e',
                         dest='eq_num_decoys',
                         required=False,
-                        help='[Optional] Reduce the number of output decoys for each input molecule to the overall minimum number of decoys \
-                        that could be assigned to a molecule but not to less than the number specified as argument.',
-                        metavar='<int>',
-                        type=int,
+                        help='[Optional] Reduces the number of output decoys for each input molecule to the overall minimum number of decoys \
+                        that could be assigned but not to less than the specified lower limit (-m option). Input molecules \
+                        that could be assigned at least the requested minimum number of decoys are witten to the file given as argument. \
+                        Furthermore, only decoys for these input molecules will be output.',
+                        metavar='<path>',
                         default=None)
     parser.add_argument('-l',
                         dest='decoy_ass_info',
@@ -258,8 +255,6 @@ def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args
     for input_mol in input_mols:
         num_sel = 0
         skip_header = True
-
-        input_mol.decoyPoolSize = 0
         
         print(f' Trying to find matching decoys for input molecule {i}...', file=sys.stderr, end='\r')
         
@@ -273,8 +268,6 @@ def findPropMatchingDecoyCandidates(input_mols: list, excl_mol_hashes: set, args
                 if input_mol.matches(decoy_props, True, args):
                     matched_decoys.append(decoy_props)
                     excl_mol_hashes.add(decoy_props.hashCode)
-
-                    input_mol.decoyPoolSize += 1
 
                     decoy_props = MolPropData()
                     num_sel += 1
@@ -299,8 +292,6 @@ def filterDecoysByInputMolSim(decoy_mol_reader: Chem.MoleculeReader, input_mols:
         ecfp_gen.generate(input_mol.molecule) 
         ecfp_gen.setFeatureBits(input_mol.ecfp)
 
-        del input_mol.molecule
-   
     res_decoys = []
     mol = Chem.BasicMolecule()
     ecfp = Util.BitSet(ECFP4_LENGTH)
@@ -425,31 +416,32 @@ def selectOutputDecoys(input_mols: list, decoy_mols: list, params: argparse.Name
 
     complete, decoy_mols = assignDecoys(input_mols, decoy_mols, True, params)
     
-    for input_mol in input_mols:
-        input_mol.numFirstPassDecoys = len(input_mol.decoys)
-        
     if not complete and params.aggressive:
         assignDecoys(input_mols, decoy_mols, False, params)
 
+    for input_mol in input_mols:
+        input_mol.numAssDecoys = len(input_mol.decoys)
+            
     if params.eq_num_decoys:
         min_num = params.max_num_decoys
         
         for input_mol in input_mols:
-            min_num = min(min_num, len(input_mol.decoys))
-
-        min_num = max(min_num, params.eq_num_decoys)
+            if input_mol.numAssDecoys >= params.min_num_decoys:
+                min_num = min(min_num, input_mol.numAssDecoys)
 
         for input_mol in input_mols:
-            if len(input_mol.decoys) > min_num:
+            if input_mol.numAssDecoys > min_num:
                 input_mol.decoys = input_mol.decoys[:min_num]
-                 
+            elif input_mol.numAssDecoys < min_num:
+                input_mol.decoys = []
+
     num_final = 0
             
     for input_mol in input_mols:
         num_final += len(input_mol.decoys)
         
-        if len(input_mol.decoys) < params.min_num_decoys:
-            print(f' Warning: insufficient number of decoys for input molecule \'{input_mol.name}\' ({len(input_mol.decoys)})', file=sys.stderr)
+        if input_mol.numAssDecoys < params.min_num_decoys:
+            print(f' Warning: insufficient number of decoys for input molecule \'{input_mol.name}\' ({input_mol.numAssDecoys})', file=sys.stderr)
         
     print(f' -> Selected {num_final} final decoys', file=sys.stderr)
 
@@ -478,6 +470,22 @@ def outputDecoys(input_mols: list, decoy_mol_reader: Chem.MoleculeReader, args: 
     mol_writer.close()
     decoy_mol_reader.close()
 
+def outputFilteredInputMolecules(input_mols: list, args: argparse.Namespace) -> None:
+    print(f'Writing input molecules with balanced number of decoys to file \'{args.eq_num_decoys}\'...', file=sys.stderr)
+
+    mol_writer = Chem.MolecularGraphWriter(args.eq_num_decoys)
+ 
+    Chem.setMultiConfExportParameter(mol_writer, False)
+
+    for input_mol in input_mols:
+        if not input_mol.decoys:
+            continue
+            
+        if not mol_writer.write(input_mol.molecule):
+            print(f' Error: could not output input molecule \'{Chem.getName(input_mol.molecule)}\'', file=sys.stderr)
+        
+    mol_writer.close()
+    
 def writeReportFile(input_mols: list, args: argparse.Namespace) -> None:
     print(f'Writing report to file \'{args.report}\'...', file=sys.stderr)
     
@@ -615,6 +623,9 @@ def main(args):
     selectOutputDecoys(input_mols, decoy_mols, args)
     outputDecoys(input_mols, decoy_mol_reader, args)
 
+    if args.eq_num_decoys:
+        outputFilteredInputMolecules(input_mols, args)
+    
     if args.report:
         writeReportFile(input_mols, args)
 
